@@ -4,23 +4,79 @@ import 'dragula/dist/dragula.css';
 import Swimlane from './Swimlane';
 import './Board.css';
 
+const STATUS_BY_LANE = {
+  backlog: 'backlog',
+  inProgress: 'in-progress',
+  complete: 'complete',
+};
+
 export default class Board extends React.Component {
   constructor(props) {
     super(props);
     const clients = this.getClients();
     this.state = {
       clients: {
-        backlog: clients.filter(client => !client.status || client.status === 'backlog'),
-        inProgress: clients.filter(client => client.status && client.status === 'in-progress'),
-        complete: clients.filter(client => client.status && client.status === 'complete'),
+        backlog: clients.map(client => ({ ...client, status: 'backlog' })),
+        inProgress: [],
+        complete: [],
       }
-    }
+    };
     this.swimlanes = {
       backlog: React.createRef(),
       inProgress: React.createRef(),
       complete: React.createRef(),
-    }
+    };
   }
+
+  componentDidMount() {
+    this.drake = Dragula([
+      this.swimlanes.backlog.current,
+      this.swimlanes.inProgress.current,
+      this.swimlanes.complete.current,
+    ]);
+    this.drake.on('drop', this.handleDrop);
+  }
+
+  componentWillUnmount() {
+    if (this.drake) this.drake.destroy();
+  }
+
+  getLaneKey(container) {
+    return Object.keys(this.swimlanes).find(
+      key => this.swimlanes[key].current === container
+    );
+  }
+
+  handleDrop = (el, target, source, sibling) => {
+    const cardId = el.getAttribute('data-id');
+    const siblingId = sibling ? sibling.getAttribute('data-id') : null;
+    const fromLane = this.getLaneKey(source);
+    const toLane = this.getLaneKey(target);
+
+    this.drake.cancel(true);
+
+    this.setState(prev => {
+      const clients = {
+        backlog: [...prev.clients.backlog],
+        inProgress: [...prev.clients.inProgress],
+        complete: [...prev.clients.complete],
+      };
+      const index = clients[fromLane].findIndex(c => c.id === cardId);
+      if (index === -1) return null;
+
+      const [card] = clients[fromLane].splice(index, 1);
+      const moved = { ...card, status: STATUS_BY_LANE[toLane] };
+
+      let insertAt = siblingId === null
+        ? clients[toLane].length
+        : clients[toLane].findIndex(c => c.id === siblingId);
+      if (insertAt === -1) insertAt = clients[toLane].length;
+
+      clients[toLane].splice(insertAt, 0, moved);
+      return { clients };
+    });
+  }
+
   getClients() {
     return [
       ['1','Stark, White and Abbott','Cloned Optimal Architecture', 'in-progress'],
@@ -50,6 +106,7 @@ export default class Board extends React.Component {
       status: companyDetails[3],
     }));
   }
+
   renderSwimlane(name, clients, ref) {
     return (
       <Swimlane name={name} clients={clients} dragulaRef={ref}/>
